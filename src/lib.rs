@@ -1,5 +1,6 @@
-//! Lock-free slab allocator. Zero runtime dependencies.
-//! Fixed-size object pools with atomic free lists.
+//! Lock-free slab allocator.
+//! Fixed-size object pools, atomic free lists, zero runtime dependencies.
+//! no_std compatible.
 
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -11,7 +12,7 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 
 const OBJECTS_PER_SLAB: usize = 1024;
 
-#[repr(C)]
+#[repr(C, align(8))]
 struct FreeNode {
     next: AtomicPtr<FreeNode>,
 }
@@ -19,7 +20,7 @@ struct FreeNode {
 pub struct Slab {
     size: usize,
     free_list: AtomicPtr<FreeNode>,
-    storage: UnsafeCell<[u8; OBJECTS_PER_SLAB * 64]>,
+    storage: UnsafeCell<[u8; OBJECTS_PER_SLAB * 128]>,
 }
 
 unsafe impl Sync for Slab {}
@@ -29,17 +30,17 @@ impl Slab {
         Self {
             size,
             free_list: AtomicPtr::new(ptr::null_mut()),
-            storage: UnsafeCell::new([0; OBJECTS_PER_SLAB * 64]),
+            storage: UnsafeCell::new([0; OBJECTS_PER_SLAB * 128]),
         }
     }
 
-    /// Call once before use.
+    /// Initialize free list. Call once from a single thread before concurrent use.
     pub fn init(&self) {
         let storage = unsafe { &mut *self.storage.get() };
         let mut prev: *mut FreeNode = ptr::null_mut();
 
-        let node_size = self.size.max(core::mem::size_of::<FreeNode>());
-        let step = node_size.next_multiple_of(core::mem::align_of::<FreeNode>());
+        let node_align = core::mem::align_of::<FreeNode>();
+        let step = self.size.max(core::mem::size_of::<FreeNode>()).next_multiple_of(node_align);
 
         for i in (0..OBJECTS_PER_SLAB).rev() {
             let offset = i * step;
@@ -89,10 +90,14 @@ impl Slab {
             }
         }
     }
+
+    pub fn available(&self) -> bool {
+        !self.free_list.load(Ordering::Acquire).is_null()
+    }
 }
 
 pub struct VantaSlab {
-    slabs: [Slab; 7],
+    slabs: [Slab; 8],
 }
 
 impl VantaSlab {
@@ -106,6 +111,7 @@ impl VantaSlab {
                 Slab::new(256),
                 Slab::new(512),
                 Slab::new(1024),
+                Slab::new(2048),
             ],
         }
     }
@@ -137,6 +143,7 @@ impl VantaSlab {
     }
 }
 
+/// Optional GlobalAlloc wrapper.
 pub struct VantaGlobal(pub VantaSlab);
 
 unsafe impl GlobalAlloc for VantaGlobal {
@@ -154,9 +161,15 @@ unsafe impl GlobalAlloc for VantaGlobal {
     }
 }
 
-            
+    
+        
                
-                
+           
+   
+             
+  
+           
+           
       
    
                 
