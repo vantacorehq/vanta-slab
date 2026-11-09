@@ -12,7 +12,7 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 
 const OBJECTS_PER_SLAB: usize = 1024;
 
-#[repr(C, align(8))]
+#[repr(C, align(16))]
 struct FreeNode {
     next: AtomicPtr<FreeNode>,
 }
@@ -20,7 +20,7 @@ struct FreeNode {
 pub struct Slab {
     size: usize,
     free_list: AtomicPtr<FreeNode>,
-    storage: UnsafeCell<[u8; OBJECTS_PER_SLAB * 128]>,
+    storage: UnsafeCell<[u8; OBJECTS_PER_SLAB * 256]>,
 }
 
 unsafe impl Sync for Slab {}
@@ -30,7 +30,7 @@ impl Slab {
         Self {
             size,
             free_list: AtomicPtr::new(ptr::null_mut()),
-            storage: UnsafeCell::new([0; OBJECTS_PER_SLAB * 128]),
+            storage: UnsafeCell::new([0; OBJECTS_PER_SLAB * 256]),
         }
     }
 
@@ -40,7 +40,10 @@ impl Slab {
         let mut prev: *mut FreeNode = ptr::null_mut();
 
         let node_align = core::mem::align_of::<FreeNode>();
-        let step = self.size.max(core::mem::size_of::<FreeNode>()).next_multiple_of(node_align);
+        let step = self
+            .size
+            .max(core::mem::size_of::<FreeNode>())
+            .next_multiple_of(node_align);
 
         for i in (0..OBJECTS_PER_SLAB).rev() {
             let offset = i * step;
@@ -91,8 +94,8 @@ impl Slab {
         }
     }
 
-    pub fn available(&self) -> bool {
-        !self.free_list.load(Ordering::Acquire).is_null()
+    pub fn is_empty(&self) -> bool {
+        self.free_list.load(Ordering::Acquire).is_null()
     }
 }
 
@@ -160,11 +163,19 @@ unsafe impl GlobalAlloc for VantaGlobal {
         }
     }
 }
-
-    
-        
+   
+            
+          
                
+ 
            
+       
+       
+   
+
+   
+           
+       
    
              
   
