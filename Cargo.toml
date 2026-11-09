@@ -1,0 +1,19 @@
+[package]
+name = "vanta-slab"
+version = "0.1.0"
+edition = "2021"
+description = "Zero-dependency lock-free slab allocator in pure Rust. Deterministic fixed-size object pools with atomic free-lists."
+license = "MIT"
+authors = ["vantacorehq"]
+repository = "https://github.com/vantacorehq/vanta-slab"
+keywords = ["allocator", "slab", "lock-free", "zero-dependencies", "systems"]
+categories = ["memory-management", "no-std", "concurrency"]
+
+[dependencies]
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "slab_bench"
+harness = false
