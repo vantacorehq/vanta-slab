@@ -1,5 +1,5 @@
-//! # Vanta-Slab
 //! Lock-free slab allocator. Zero runtime dependencies.
+//! Fixed-size object pools with atomic free lists.
 
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -9,8 +9,9 @@ use core::cell::UnsafeCell;
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-const OBJECTS_PER_SLAB: usize = 512;
+const OBJECTS_PER_SLAB: usize = 1024;
 
+#[repr(C)]
 struct FreeNode {
     next: AtomicPtr<FreeNode>,
 }
@@ -18,30 +19,31 @@ struct FreeNode {
 pub struct Slab {
     size: usize,
     free_list: AtomicPtr<FreeNode>,
-    storage: UnsafeCell<Vec<u8>>, // replaced with fixed in real no_std; keep for simplicity in std context
+    storage: UnsafeCell<[u8; OBJECTS_PER_SLAB * 64]>,
 }
 
 unsafe impl Sync for Slab {}
 
 impl Slab {
-    pub fn new(size: usize) -> Self {
-        let aligned_size = size.max(core::mem::size_of::<FreeNode>()).next_power_of_two();
-        let total = aligned_size * OBJECTS_PER_SLAB;
-        let mut storage = vec![0u8; total];
+    pub const fn new(size: usize) -> Self {
         Self {
-            size: aligned_size,
+            size,
             free_list: AtomicPtr::new(ptr::null_mut()),
-            storage: UnsafeCell::new(storage),
+            storage: UnsafeCell::new([0; OBJECTS_PER_SLAB * 64]),
         }
     }
 
+    /// Call once before use.
     pub fn init(&self) {
         let storage = unsafe { &mut *self.storage.get() };
         let mut prev: *mut FreeNode = ptr::null_mut();
 
+        let node_size = self.size.max(core::mem::size_of::<FreeNode>());
+        let step = node_size.next_multiple_of(core::mem::align_of::<FreeNode>());
+
         for i in (0..OBJECTS_PER_SLAB).rev() {
-            let offset = i * self.size;
-            if offset + self.size > storage.len() {
+            let offset = i * step;
+            if offset + step > storage.len() {
                 break;
             }
             let node_ptr = unsafe { storage.as_mut_ptr().add(offset) as *mut FreeNode };
@@ -50,6 +52,7 @@ impl Slab {
             }
             prev = node_ptr;
         }
+
         self.free_list.store(prev, Ordering::Release);
     }
 
@@ -89,11 +92,11 @@ impl Slab {
 }
 
 pub struct VantaSlab {
-    slabs: [Slab; 6],
+    slabs: [Slab; 7],
 }
 
 impl VantaSlab {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             slabs: [
                 Slab::new(16),
@@ -102,13 +105,14 @@ impl VantaSlab {
                 Slab::new(128),
                 Slab::new(256),
                 Slab::new(512),
+                Slab::new(1024),
             ],
         }
     }
 
     pub fn init(&self) {
-        for s in &self.slabs {
-            s.init();
+        for slab in &self.slabs {
+            slab.init();
         }
     }
 
@@ -132,10 +136,35 @@ impl VantaSlab {
         }
     }
 }
+
+pub struct VantaGlobal(pub VantaSlab);
+
+unsafe impl GlobalAlloc for VantaGlobal {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        self.0
+            .allocate(layout)
+            .map(|p| p.as_ptr())
+            .unwrap_or(ptr::null_mut())
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        if let Some(p) = NonNull::new(ptr) {
+            self.0.deallocate(p, layout);
+        }
+    }
+}
+
+            
+               
+                
+      
+   
+                
+
+   
+        
   
-           
-              
-          
+
    
        
 
