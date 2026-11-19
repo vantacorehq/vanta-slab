@@ -47,8 +47,10 @@ impl Slab {
 
         for i in (0..OBJECTS_PER_SLAB).rev() {
             let offset = i * step;
+            // High indexes do not fit in larger size classes. Skip them;
+            // smaller indexes still fit in the 1024 * 256 byte buffer.
             if offset + step > storage.len() {
-                break;
+                continue;
             }
             let node_ptr = unsafe { storage.as_mut_ptr().add(offset) as *mut FreeNode };
             unsafe {
@@ -125,6 +127,23 @@ impl VantaSlab {
         }
     }
 
+    /// Write `VantaSlab::new()` to `dst` one size class at a time.
+    ///
+    /// `VantaSlab` is about 2MB. Building it as a stack temporary overflows
+    /// the default thread stack. Callers heap-allocate `dst` first.
+    ///
+    /// # Safety
+    ///
+    /// `dst` must be writable and aligned for `VantaSlab`.
+    pub unsafe fn write_new(dst: *mut Self) {
+        const SIZES: [usize; 8] = [16, 32, 64, 128, 256, 512, 1024, 2048];
+        let stride = core::mem::size_of::<Slab>();
+        for (i, size) in SIZES.into_iter().enumerate() {
+            let slot = unsafe { (dst as *mut u8).add(i * stride) as *mut Slab };
+            unsafe { core::ptr::write(slot, Slab::new(size)) };
+        }
+    }
+
     pub fn allocate(&self, layout: Layout) -> Option<NonNull<u8>> {
         let size = layout.size().max(layout.align());
         for slab in &self.slabs {
@@ -163,34 +182,3 @@ unsafe impl GlobalAlloc for VantaGlobal {
         }
     }
 }
-   
-            
-          
-               
- 
-           
-       
-       
-   
-
-   
-           
-       
-   
-             
-  
-           
-           
-      
-   
-                
-
-   
-        
-  
-
-   
-       
-
- 
-
